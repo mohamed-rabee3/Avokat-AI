@@ -1,10 +1,10 @@
-## Legal Chatbot MVP – Full Documentation Plan (LlamaIndex + Graphiti, with Embeddings)
+## Legal Chatbot MVP – Full Documentation Plan (PyMuPDF + Neo4j Knowledge Graph Builder)
 
 ### 1. Objectives and Scope
 - **Primary goals**:
   - **Per-chat isolation**: Each chat session uses only its own uploaded documents; no cross-session leakage.
   - **Grounded answers**: Retrieval-augmented responses using session-scoped knowledge and recent chat history.
-  - **Safety**: Prominent disclaimer in UI and in every model response: “This is not legal advice.”
+  - **Safety**: Prominent disclaimer in UI and in every model response: "This is not legal advice."
   - **Simplicity**: Single-user assumption; 1–2 PDFs per session; minimal UI; shippable in 1 day.
 - **Non-goals (MVP)**:
   - Multi-user auth/roles/ACLs; enterprise SSO.
@@ -14,10 +14,10 @@
 ### 2. Architecture Overview
 - **Frontend (React)**: Session creation/selection, per-session file upload, chat UI with citations and history.
 - **Backend (FastAPI)**: Session management, ingestion, retrieval, LLM calls, history persistence, isolation enforcement.
-- **RAG (LlamaIndex)**: PDF/text loading, chunking, embeddings, retrieval orchestration.
-- **Knowledge Graph (Graphiti + Neo4j)**: Session-scoped facts/snippets and relationships; temporal metadata optional.
-- **Persistence**: SQLite for sessions/messages/uploads; Neo4j for KG; both keyed by `session_id`.
-- **LLM (Gemini)**: Answer synthesis from KG facts + chat history (low temperature, deterministic, with disclaimer).
+- **PDF Processing (PyMuPDF)**: High-quality PDF text extraction and document processing.
+- **Knowledge Graph (Neo4j Knowledge Graph Builder + LangChain)**: Session-scoped entities and relationships extracted using Gemini LLM.
+- **Persistence**: SQLite for sessions/messages/uploads; Neo4j Aura Cloud for KG; both keyed by `session_id`.
+- **LLM (Gemini 2.0 Flash)**: Knowledge graph extraction and answer synthesis (low temperature, deterministic, with disclaimer).
 
 #### 2.1 Data Flow (High Level)
 ```mermaid
@@ -25,24 +25,28 @@ sequenceDiagram
     autonumber
     participant F as Frontend (React)
     participant A as API (FastAPI)
-    participant LI as LlamaIndex (Ingestion/Retrieval)
-    participant G as Graphiti/Neo4j (KG)
+    participant PDF as PyMuPDF (PDF Processing)
+    participant KG as Neo4j KG Builder (Knowledge Graph)
     participant DB as SQLite (Sessions/History)
-    participant LLM as Gemini (Vertex AI)
+    participant LLM as Gemini 2.0 Flash (LLM)
 
     F->>A: POST /sessions (name?)
     A->>DB: Create session (id, timestamps)
     A-->>F: {session_id}
 
     F->>A: POST /ingest (multipart: session_id, file)
-    A->>LI: Load, chunk, embed
-    LI->>G: Add episodes with session_id (Graphiti creates entities/edges)
-    A-->>F: {status: success, stats}
+    A->>PDF: Extract text from PDF
+    PDF->>A: Return document chunks
+    A->>KG: Extract entities/relationships using Gemini LLM
+    KG->>LLM: Process chunks for knowledge graph creation
+    LLM-->>KG: Return structured entities and relationships
+    KG->>KG: Store in Neo4j Aura with session_id
+    A-->>F: {status: success, nodes_created, relationships_created}
 
     F->>A: POST /chat {session_id, message}
     A->>DB: Load recent history (token-limited)
-    A->>G: Retrieve facts filtered by session_id
-    A->>LLM: Prompt = disclaimer + facts + clipped history + user message
+    A->>KG: Query knowledge graph filtered by session_id
+    A->>LLM: Prompt = disclaimer + KG facts + clipped history + user message
     LLM-->>A: Response (stream or final)
     A->>DB: Append user + assistant messages
     A-->>F: Stream/final response (+sources)
@@ -56,17 +60,19 @@ graph TD
     end
     subgraph Server
         API[FastAPI Backend]
-        RAG[LlamaIndex Pipeline]
-        KG[Graphiti + Neo4j]
+        PDF[PyMuPDF Processor]
+        KG[Neo4j KG Builder + LangChain]
         DB[SQLite]
-        LLM[Gemini]
+        LLM[Gemini 2.0 Flash]
     end
 
     UI -->|HTTPS JSON/SSE| API
-    API -->|Ingest/Retrieve| RAG
-    RAG -->|Facts/Edges (session_id)| KG
+    API -->|PDF Processing| PDF
+    PDF -->|Document Chunks| KG
+    KG -->|Entities/Relationships (session_id)| Neo4j[(Neo4j Aura Cloud)]
     API -->|History CRUD| DB
     API -->|Prompt/Response| LLM
+    KG -->|Knowledge Graph Extraction| LLM
 ```
 
 ### 3. Storage, Data Model, and Isolation
@@ -80,37 +86,39 @@ graph TD
 - **Settings**: WAL enabled; index on `messages.session_id` for fast history retrieval.
 - **History policy**: Maintain token counts to clip history by token budget, not message count.
 
-#### 3.2 Neo4j (Graphiti-backed KG)
+#### 3.2 Neo4j (Knowledge Graph Builder-backed KG)
 - **Isolation**: Add `session_id` property to all nodes and relationships. All Cypher includes `WHERE ... session_id = $session_id`.
 - **Indices**: Create indices on session property for labels used (e.g., entity/fact labels). One-time creation on backend startup.
-- **Temporal metadata**: Set `reference_time` when ingesting episodes to enable time-aware queries later (optional for MVP).
-- **Startup tasks (local Graphiti)**: On backend startup, call Graphiti’s utility to build indices and constraints (once), then proceed with ingestion.
+- **Temporal metadata**: Set `created_at` timestamp when creating entities to enable time-aware queries later (optional for MVP).
+- **Startup tasks**: On backend startup, initialize Neo4j connection and verify indices/constraints.
 
-### 4. RAG Pipeline (with Embeddings)
+### 4. Knowledge Graph Pipeline
 
-#### 4.1 Ingestion (LlamaIndex)
-- **Readers**: Use LlamaIndex PDF/text readers to extract text from uploaded files.
-- **Chunking**: Sentence-level splitter with moderate chunk size and small overlap (optimize for recall and synthesis).
-- **Embeddings**: Use a single embedding model provider for consistency across:
-  - LlamaIndex chunk vectors (per-session vector index)
-  - Graphiti fact/entity vectors (if enabled)
-- **Mapping to KG**: Convert chunks to facts/snippets with citations (doc name, section), attach `session_id` and optional `reference_time`, and upsert via Graphiti.
-- **Idempotency**: Upserts keyed by `doc_id` + `section_id` + `session_id` to avoid duplicates.
+#### 4.1 Ingestion (PyMuPDF + Neo4j Knowledge Graph Builder)
+- **PDF Processing**: Use PyMuPDF for high-quality text extraction from uploaded PDF files.
+- **Chunking**: Recursive character splitter with moderate chunk size and small overlap (optimize for entity extraction).
+- **Knowledge Graph Extraction**: Use Gemini 2.0 Flash LLM to extract:
+  - Legal entities (persons, organizations, contracts, cases, laws, regulations)
+  - Legal relationships (agreements, obligations, rights, responsibilities)
+  - Key legal concepts and terms
+  - Dates, amounts, and other important details
+- **Mapping to KG**: Convert extracted entities and relationships to Neo4j nodes and edges with citations (doc name, section), attach `session_id` and `created_at` timestamp.
+- **Idempotency**: Upserts keyed by `entity_id` + `session_id` to avoid duplicates.
 
-#### 4.2 Retrieval (Hybrid recommended)
-- **Scope first (local Graphiti)**: Enforce `session_id` filtering in all Neo4j/Graphiti-backed queries. If high-level search doesn’t expose `session_id`, run a scoped Cypher or use Graphiti methods that respect session metadata.
-- **Top‑K strategy**: Retrieve semantically similar facts/snippets via embeddings; optionally combine with keyword/BM25 and rerank.
-- **Diversity**: Favor coverage across relevant document sections; avoid redundant snippets.
-- **Context pack**: Build a compact set of facts + citations for prompt augmentation.
+#### 4.2 Retrieval (Knowledge Graph-based)
+- **Scope first**: Enforce `session_id` filtering in all Neo4j queries using Cypher WHERE clauses.
+- **Entity-based retrieval**: Query relevant entities and their relationships based on user questions.
+- **Relationship traversal**: Follow relationship paths to find connected entities and context.
+- **Context pack**: Build a compact set of entities, relationships, and properties + citations for prompt augmentation.
 
-#### 4.3 Prompting (Gemini)
-- **System instruction**: The assistant must use only session KG context and recent chat history; include the legal disclaimer.
+#### 4.3 Prompting (Gemini 2.0 Flash)
+- **System instruction**: The assistant must use only session knowledge graph context and recent chat history; include the legal disclaimer.
 - **Prompt structure** (token-aware):
   - Disclaimer (fixed)
-  - Session KG facts (bulleted, concise, with citations)
+  - Session KG entities and relationships (structured, concise, with citations)
   - Recent chat history (role-labeled, clipped by tokens)
   - User message
-- **Parameters**: Low temperature; conservative safety settings as available.
+- **Parameters**: Low temperature (0.1); conservative safety settings as available.
 
 ### 5. API Design and Contracts
 
@@ -120,11 +128,11 @@ graph TD
   - Response: `session_id`
 - **POST `/ingest`**
   - Multipart: `session_id`, `file`
-  - Validates file type/size; runs ingestion; persists upload metadata
-  - Response: `status`, ingestion stats (e.g., nodes/facts count)
+  - Validates file type/size; runs PDF processing and knowledge graph extraction; persists upload metadata
+  - Response: `status`, ingestion stats (e.g., nodes_created, relationships_created count)
 - **POST `/chat`**
   - Body: `session_id`, `message`
-  - Behavior: load recent history (token-limited), retrieve KG facts (scoped), call LLM, append messages
+  - Behavior: load recent history (token-limited), retrieve KG entities/relationships (scoped), call LLM, append messages
   - Response: streaming text or final `{response, sources}` with citations
 - **GET `/history/{session_id}`**: Returns ordered messages.
 - **GET `/history/list`**: Returns `{id, name, last_updated}` for all sessions.
@@ -292,53 +300,58 @@ sequenceDiagram
 
 
 ### 7. Configuration, Security, and Logging
-- **Configuration (env)**: Neo4j URI/user/pass; embedding provider config; Gemini model and auth; SQLite path.
+- **Configuration (env)**: Neo4j Aura Cloud URI/user/pass; Gemini API key; SQLite path.
 - **Security**: Never expose secrets to frontend; validate file types and sizes; limit message length.
 - **CORS**: Restrict to local/frontend origin during MVP.
 - **Logging**: Log request IDs, `session_id`, timings; do not log document content. For Neo4j driver calls, explicitly set the target database for efficiency and determinism.
 
 ### 8. Setup and Operations (Day‑1)
-- **Prerequisites**: Running Neo4j (Docker or Desktop) with credentials; internet for LLM/embeddings.
+- **Prerequisites**: Neo4j Aura Cloud instance with credentials; internet for Gemini LLM API.
 - **Environment**: Set required variables for backend services and providers.
 - **Virtual environment**: On Windows, create with "py -m venv venv" and activate with "venv\Scripts\Activate.ps1".
-- **Startup order**: Neo4j → Backend (ensures indices/constraints created) → Frontend.
-- **Sanity checks**: Create session; upload a small PDF; ingestion returns stats; ask a question; verify citations.
+- **Dependencies**: Install PyMuPDF, LangChain, Google Generative AI, Neo4j driver.
+- **Startup order**: Backend (connects to Neo4j Aura) → Frontend.
+- **Sanity checks**: Create session; upload a small PDF; knowledge graph extraction returns stats; ask a question; verify citations.
 
 ### 9. Testing and Validation
-- **Isolation test**: Two sessions with different PDFs; ensure answers only cite the active session’s docs.
+- **Isolation test**: Two sessions with different PDFs; ensure answers only cite the active session's knowledge graph.
 - **No-doc test**: Chat without uploads yields a helpful prompt to upload first; no hallucinated content.
 - **Follow-up coherence**: Multi-turn dialog where the second question references the first answer; verify continuity.
-- **Citations**: Validate that cited docs/sections correspond to retrieved context.
-- **Performance**: Ingestion ≤ ~60s for a 10–20 page PDF; chat p50 ≤ ~5s (short prompts).
+- **Citations**: Validate that cited docs/sections correspond to retrieved knowledge graph entities.
+- **Performance**: Knowledge graph extraction ≤ ~60s for a 10–20 page PDF; chat p50 ≤ ~5s (short prompts).
+- **Entity extraction**: Verify that legal entities (persons, organizations, contracts) are correctly identified and stored.
 
 ### 10. KPIs and Acceptance Criteria
 - **Functional**: ≥90% answers include correct citations; 0 cross-session leakage in tests; coherent follow-ups ≥80%.
-- **Performance**: Ingestion and chat latency targets met for small PDFs and short prompts.
-- **Reliability**: Error rate ≤2% over a small demo load (ingest+chat).
+- **Performance**: Knowledge graph extraction and chat latency targets met for small PDFs and short prompts.
+- **Reliability**: Error rate ≤2% over a small demo load (knowledge graph extraction+chat).
+- **Entity accuracy**: ≥85% of legal entities correctly identified and properly typed.
 
 ### 11. Risks and Fallbacks
-- **PDF parsing quality**: If extraction is poor, pre-convert PDFs to text before ingestion; keep pipeline identical.
-- **Graphiti integration**: If blocked, store/retrieve chunks directly via Neo4j with `session_id` and simple Cypher; add Graphiti later.
+- **PDF parsing quality**: PyMuPDF provides high-quality extraction; if issues arise, pre-convert PDFs to text before processing.
+- **Knowledge graph extraction**: If Gemini LLM fails, fallback to simple text chunking and keyword-based entity extraction.
+- **Neo4j connectivity**: If Neo4j Aura is unavailable, fallback to local Neo4j instance or SQLite-based storage.
 - **Streaming complexity**: If SSE is unstable, use non-streaming responses for MVP while preserving the endpoint.
 
 ### 12. Operational Playbook
 - **Daily ops**: Keep PDFs small for demos; rotate logs; monitor basic timings.
 - **Troubleshooting**:
-  - Ingestion failures → check file type/size; embedding credentials; chunking parameters.
-  - Slow retrieval → verify Neo4j indices; reduce top‑K; reduce chunk size.
+  - Knowledge graph extraction failures → check file type/size; Gemini API credentials; chunking parameters.
+  - Slow retrieval → verify Neo4j indices; optimize Cypher queries; reduce chunk size.
   - Cross-session leakage → audit all queries for `session_id` filters.
-  - LLM errors → verify credentials/model; reduce token load by trimming facts/history.
+  - LLM errors → verify Gemini API credentials/model; reduce token load by trimming entities/relationships.
 
 ### 13. Delivery Checklist
-- **Backend**: Env documented; indices/constraints created on startup; `session_id` filters in all KG queries; consistent errors; prompt contains disclaimer.
+- **Backend**: Env documented; Neo4j Aura connection verified; `session_id` filters in all KG queries; consistent errors; prompt contains disclaimer.
 - **Frontend**: New Chat flow; per-session uploads; chat with citations; visible disclaimer; streaming or polling implemented.
-- **RAG/Storage**: LlamaIndex ingestion configured with embeddings; Neo4j indices verified; SQLite in WAL mode.
-- **Tests**: Isolation, no-doc, follow-up, and citation accuracy validated.
+- **Knowledge Graph/Storage**: PyMuPDF processing configured; Neo4j Knowledge Graph Builder with Gemini LLM; Neo4j indices verified; SQLite in WAL mode.
+- **Tests**: Isolation, no-doc, follow-up, citation accuracy, and entity extraction validated.
 
 ### 14. Roadmap (Post-MVP)
 - Multi-user auth and per-user isolation.
-- Richer entity/relation extraction and temporal queries.
+- Enhanced entity/relation extraction with specialized legal models.
 - Document versioning and session merge/export.
+- Advanced knowledge graph queries and reasoning.
 - Observability (metrics, tracing) and safety evaluations.
 
 

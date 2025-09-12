@@ -4,111 +4,117 @@ from datetime import datetime
 import logging
 
 from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
-from neomodel import (
-    StructuredNode, StructuredRel, 
-    StringProperty, IntegerProperty, DateTimeProperty, 
-    RelationshipTo, RelationshipFrom, Relationship,
-    config, install_all_labels, db
-)
-from neomodel.exceptions import DoesNotExist
+# Neomodel imports disabled for Neo4j Aura compatibility
+# from neomodel import (
+#     StructuredNode, StructuredRel, 
+#     StringProperty, IntegerProperty, DateTimeProperty, 
+#     RelationshipTo, RelationshipFrom, Relationship,
+#     config, install_all_labels, db
+# )
+# from neomodel.exceptions import DoesNotExist
 
 from ..core.config import settings
 
-# Configure neomodel
-config.DATABASE_URL = f"bolt://{settings.neo4j_username}:{settings.neo4j_password}@{settings.neo4j_uri.replace('bolt://', '')}"
-config.DATABASE_NAME = settings.neo4j_database
+# Configure neomodel - DISABLED for Neo4j Aura compatibility
+# Neo4j Aura uses neo4j+s:// protocol which neomodel doesn't support well
+# We'll use the main Neo4j driver instead for all operations
+# config.DATABASE_URL = f"bolt://{settings.neo4j_user}:{settings.neo4j_password}@{neo4j_host}"
+# config.DATABASE_NAME = settings.neo4j_database
 
 logger = logging.getLogger(__name__)
 
 
+# Neomodel model classes disabled for Neo4j Aura compatibility
+# We'll use raw Cypher queries with the main Neo4j driver instead
+
 # Base classes for session isolation
-class SessionIsolatedNode(StructuredNode):
-    """Base class for all nodes that need session isolation"""
-    session_id = IntegerProperty(required=True, index=True)
-    created_at = DateTimeProperty(default=lambda: datetime.utcnow())
-    updated_at = DateTimeProperty(default=lambda: datetime.utcnow())
-
-
-class SessionIsolatedRel(StructuredRel):
-    """Base class for all relationships that need session isolation"""
-    session_id = IntegerProperty(required=True, index=True)
-    created_at = DateTimeProperty(default=lambda: datetime.utcnow())
-
-
-# Entity Models
-class Entity(SessionIsolatedNode):
-    """Represents entities in the knowledge graph"""
-    __label__ = "Entity"
-    
-    name = StringProperty(required=True, index=True)
-    entity_type = StringProperty(required=True, index=True)  # PERSON, ORGANIZATION, LOCATION, etc.
-    description = StringProperty()
-    properties = StringProperty()  # JSON string for additional properties
-    
-    # Relationships
-    facts = RelationshipFrom("Fact", "ABOUT", model=SessionIsolatedRel)
-    relationships = Relationship("Entity", "RELATED_TO", model=SessionIsolatedRel)
-
-
-class Fact(SessionIsolatedNode):
-    """Represents facts in the knowledge graph"""
-    __label__ = "Fact"
-    
-    content = StringProperty(required=True, index=True)
-    fact_type = StringProperty(required=True, index=True)  # LEGAL_FACT, EVIDENCE, etc.
-    confidence_score = IntegerProperty(default=100)  # 0-100
-    source = StringProperty()
-    
-    # Relationships
-    entities = RelationshipTo(Entity, "ABOUT", model=SessionIsolatedRel)
-    documents = RelationshipFrom("Document", "CONTAINS", model=SessionIsolatedRel)
-
-
-class Document(SessionIsolatedNode):
-    """Represents documents in the knowledge graph"""
-    __label__ = "Document"
-    
-    title = StringProperty(required=True, index=True)
-    document_type = StringProperty(required=True, index=True)  # CONTRACT, CASE_FILE, etc.
-    content = StringProperty()
-    file_path = StringProperty()
-    file_size = IntegerProperty()
-    upload_date = DateTimeProperty(default=lambda: datetime.utcnow())
-    
-    # Relationships
-    facts = RelationshipTo(Fact, "CONTAINS", model=SessionIsolatedRel)
-    entities = RelationshipTo(Entity, "MENTIONS", model=SessionIsolatedRel)
-
-
-class LegalConcept(SessionIsolatedNode):
-    """Represents legal concepts and terms"""
-    __label__ = "LegalConcept"
-    
-    term = StringProperty(required=True, unique_index=True)
-    definition = StringProperty()
-    category = StringProperty(index=True)  # STATUTE, REGULATION, CASE_LAW, etc.
-    jurisdiction = StringProperty(index=True)
-    
-    # Relationships
-    related_concepts = Relationship("LegalConcept", "RELATED_TO", model=SessionIsolatedRel)
-    applies_to = RelationshipTo(Entity, "APPLIES_TO", model=SessionIsolatedRel)
-
-
-class Case(SessionIsolatedNode):
-    """Represents legal cases"""
-    __label__ = "Case"
-    
-    case_number = StringProperty(required=True, unique_index=True)
-    case_name = StringProperty(required=True, index=True)
-    court = StringProperty(index=True)
-    jurisdiction = StringProperty(index=True)
-    case_date = DateTimeProperty()
-    status = StringProperty(index=True)  # OPEN, CLOSED, PENDING, etc.
-    
-    # Relationships
-    parties = RelationshipTo(Entity, "INVOLVES", model=SessionIsolatedRel)
-    documents = RelationshipTo(Document, "CONTAINS", model=SessionIsolatedRel)
-    legal_concepts = RelationshipTo(LegalConcept, "INVOLVES", model=SessionIsolatedRel)
+# class SessionIsolatedNode(StructuredNode):
+#     """Base class for all nodes that need session isolation"""
+#     session_id = IntegerProperty(required=True, index=True)
+#     created_at = DateTimeProperty(default=lambda: datetime.utcnow())
+#     updated_at = DateTimeProperty(default=lambda: datetime.utcnow())
+#
+#
+# class SessionIsolatedRel(StructuredRel):
+#     """Base class for all relationships that need session isolation"""
+#     session_id = IntegerProperty(required=True, index=True)
+#     created_at = DateTimeProperty(default=lambda: datetime.utcnow())
+#
+#
+# # Entity Models
+# class Entity(SessionIsolatedNode):
+#     """Represents entities in the knowledge graph"""
+#     __label__ = "Entity"
+#     
+#     name = StringProperty(required=True, index=True)
+#     entity_type = StringProperty(required=True, index=True)  # PERSON, ORGANIZATION, LOCATION, etc.
+#     description = StringProperty()
+#     properties = StringProperty()  # JSON string for additional properties
+#     
+#     # Relationships
+#     facts = RelationshipFrom("Fact", "ABOUT", model=SessionIsolatedRel)
+#     relationships = Relationship("Entity", "RELATED_TO", model=SessionIsolatedRel)
+#
+#
+# class Fact(SessionIsolatedNode):
+#     """Represents facts in the knowledge graph"""
+#     __label__ = "Fact"
+#     
+#     content = StringProperty(required=True, index=True)
+#     fact_type = StringProperty(required=True, index=True)  # LEGAL_FACT, EVIDENCE, etc.
+#     confidence_score = IntegerProperty(default=100)  # 0-100
+#     source = StringProperty()
+#     
+#     # Relationships
+#     entities = RelationshipTo(Entity, "ABOUT", model=SessionIsolatedRel)
+#     documents = RelationshipFrom("Document", "CONTAINS", model=SessionIsolatedRel)
+#
+#
+# class Document(SessionIsolatedNode):
+#     """Represents documents in the knowledge graph"""
+#     __label__ = "Document"
+#     
+#     title = StringProperty(required=True, index=True)
+#     document_type = StringProperty(required=True, index=True)  # CONTRACT, CASE_FILE, etc.
+#     content = StringProperty()
+#     file_path = StringProperty()
+#     file_size = IntegerProperty()
+#     upload_date = DateTimeProperty(default=lambda: datetime.utcnow())
+#     
+#     # Relationships
+#     facts = RelationshipTo(Fact, "CONTAINS", model=SessionIsolatedRel)
+#     entities = RelationshipTo(Entity, "MENTIONS", model=SessionIsolatedRel)
+#
+#
+# class LegalConcept(SessionIsolatedNode):
+#     """Represents legal concepts and terms"""
+#     __label__ = "LegalConcept"
+#     
+#     term = StringProperty(required=True, unique_index=True)
+#     definition = StringProperty()
+#     category = StringProperty(index=True)  # STATUTE, REGULATION, CASE_LAW, etc.
+#     jurisdiction = StringProperty(index=True)
+#     
+#     # Relationships
+#     related_concepts = Relationship("LegalConcept", "RELATED_TO", model=SessionIsolatedRel)
+#     applies_to = RelationshipTo(Entity, "APPLIES_TO", model=SessionIsolatedRel)
+#
+#
+# class Case(SessionIsolatedNode):
+#     """Represents legal cases"""
+#     __label__ = "Case"
+#     
+#     case_number = StringProperty(required=True, unique_index=True)
+#     case_name = StringProperty(required=True, index=True)
+#     court = StringProperty(index=True)
+#     jurisdiction = StringProperty(index=True)
+#     case_date = DateTimeProperty()
+#     status = StringProperty(index=True)  # OPEN, CLOSED, PENDING, etc.
+#     
+#     # Relationships
+#     parties = RelationshipTo(Entity, "INVOLVES", model=SessionIsolatedRel)
+#     documents = RelationshipTo(Document, "CONTAINS", model=SessionIsolatedRel)
+#     legal_concepts = RelationshipTo(LegalConcept, "INVOLVES", model=SessionIsolatedRel)
 
 
 # Neo4j Driver Management
@@ -128,7 +134,7 @@ class Neo4jManager:
             # Create async driver
             self.driver = AsyncGraphDatabase.driver(
                 settings.neo4j_uri,
-                auth=(settings.neo4j_username, settings.neo4j_password)
+                auth=(settings.neo4j_user, settings.neo4j_password)
             )
             
             # Verify connectivity
@@ -262,10 +268,7 @@ def add_session_filter(query: str, session_id: int) -> str:
 
 # Initialize neomodel labels and constraints
 async def init_neomodel():
-    """Initialize neomodel labels and constraints"""
-    try:
-        install_all_labels()
-        logger.info("Neomodel labels and constraints installed")
-    except Exception as e:
-        logger.error(f"Failed to install neomodel labels: {e}")
-        raise
+    """Initialize neomodel labels and constraints - DISABLED for Neo4j Aura"""
+    # Neomodel is disabled for Neo4j Aura compatibility
+    # The main Neo4j driver handles all operations and index creation
+    logger.info("Neomodel initialization skipped - using main Neo4j driver for Neo4j Aura compatibility")
