@@ -1,2 +1,1 @@
-
-
+# Avokat AI Backend Application
