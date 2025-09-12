@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Modern Chat Interface Design System */
+
+@layer base {
+  :root {
+    /* Core colors - Modern chat palette */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    /* Primary - Modern blue gradient */
+    --primary: 217 92% 55%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 217 100% 70%;
+
+    /* Secondary - Soft purple */
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    /* Muted - Chat interface grays */
+    --muted: 220 14.3% 95.9%;
+    --muted-foreground: 220 8.9% 46.1%;
+
+    --accent: 220 14.3% 95.9%;
+    --accent-foreground: 220 8.9% 46.1%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 217 92% 55%;
+
+    --radius: 0.75rem;
+
+    /* Chat-specific colors - FIXED */
+    --chat-bubble-user: 217 92% 55%;
+    --chat-bubble-user-foreground: 0 0% 100%;
+    --chat-bubble-assistant: 0 0% 96%;
+    --chat-bubble-assistant-foreground: 222.2 84% 4.9%;
+    
+    /* Sidebar colors */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 217 92% 55%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 220 14.3% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 92% 55%), hsl(217 100% 70%));
+    --gradient-subtle: linear-gradient(180deg, hsl(0 0% 100%), hsl(220 14.3% 95.9%));
+    
+    /* Shadows */
+    --shadow-chat: 0 4px 20px -4px hsl(217 92% 55% / 0.1);
+    --shadow-sidebar: 4px 0 20px -4px hsl(0 0% 0% / 0.1);
+    
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  }
+
+  .dark {
+    /* Dark mode - Modern chat interface */
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 92% 65%;
+    --primary-foreground: 222.2 84% 4.9%;
+    --primary-glow: 217 100% 80%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 217 92% 65%;
+
+    /* Dark chat colors - FIXED */
+    --chat-bubble-user: 217 92% 65%;
+    --chat-bubble-user-foreground: 222.2 84% 4.9%;
+    --chat-bubble-assistant: 217.2 32.6% 17.5%;
+    --chat-bubble-assistant-foreground: 210 40% 98%;
+    
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 217 92% 65%;
+    --sidebar-primary-foreground: 222.2 84% 4.9%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Dark gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(217 92% 65%), hsl(217 100% 80%));
+    --gradient-subtle: linear-gradient(180deg, hsl(222.2 84% 4.9%), hsl(217.2 32.6% 17.5%));
+    
+    /* Dark shadows */
+    --shadow-chat: 0 4px 20px -4px hsl(217 92% 65% / 0.2);
+    --shadow-sidebar: 4px 0 20px -4px hsl(0 0% 0% / 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom component styles */
+@layer components {
+  .chat-message-user {
+    @apply bg-chat-bubble-user text-chat-bubble-user-foreground;
+  }
+  
+  .chat-message-assistant {
+    @apply bg-chat-bubble-assistant text-chat-bubble-assistant-foreground;
+  }
+  
+  .chat-input {
+    transition: var(--transition-smooth);
+  }
+  
+  .chat-input:focus {
+    box-shadow: var(--shadow-chat);
+  }
+  
+  .sidebar-trigger {
+    transition: var(--transition-bounce);
+  }
+  
+  .sidebar-trigger:hover {
+    transform: scale(1.05);
+  }
+}
+
+/* Animation utilities from the context */
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+  }
+  
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out;
+  }
+  
+  .hover-scale {
+    @apply transition-transform duration-200 hover:scale-105;
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  0% {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

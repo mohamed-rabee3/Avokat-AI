@@ -21,6 +21,7 @@ from langchain.prompts import ChatPromptTemplate
 import google.generativeai as genai
 
 from ..core.config import settings
+from .language_detector import language_detector
 
 logger = logging.getLogger(__name__)
 
@@ -195,8 +196,17 @@ class Neo4jKnowledgeGraphBuilder:
             await self.initialize()
         
         try:
+            # Detect language and enhance prompt accordingly
+            detected_language = language_detector.detect_language(document.page_content)
+            enhanced_prompt = language_detector.get_language_specific_prompt(
+                detected_language, 
+                self.prompt_template
+            )
+            
             # Extract graph data using Gemini directly
-            prompt = self.prompt_template.format(input=document.page_content)
+            prompt = enhanced_prompt.format(input=document.page_content)
+            
+            logger.info(f"Processing document in {detected_language} language")
             
             # Generate response from Gemini
             response = self.llm.generate_content(prompt)
@@ -234,15 +244,17 @@ class Neo4jKnowledgeGraphBuilder:
                 source=document
             )
             
-            # Add session_id to all nodes and relationships
+            # Add session_id and language to all nodes and relationships
             for node in graph_document.nodes:
                 node.properties = node.properties or {}
                 node.properties["session_id"] = str(session_id)
+                node.properties["language"] = detected_language
                 node.properties["created_at"] = datetime.now(timezone.utc).isoformat()
             
             for rel in graph_document.relationships:
                 rel.properties = rel.properties or {}
                 rel.properties["session_id"] = str(session_id)
+                rel.properties["language"] = detected_language
                 rel.properties["created_at"] = datetime.now(timezone.utc).isoformat()
             
             # Store information into Neo4j graph

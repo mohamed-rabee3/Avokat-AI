@@ -11,10 +11,25 @@ RETURN n, r, m
 LIMIT 100
 ```
 
+### 1.1. View All Nodes and Relationships by Language
+```cypher
+MATCH (n)-[r]->(m)
+WHERE n.language = "arabic" AND m.language = "arabic"
+RETURN n, r, m
+LIMIT 100
+```
+
 ### 2. Count All Nodes by Type
 ```cypher
 MATCH (n)
 RETURN labels(n)[0] as NodeType, count(n) as Count
+ORDER BY Count DESC
+```
+
+### 2.1. Count All Nodes by Type and Language
+```cypher
+MATCH (n)
+RETURN labels(n)[0] as NodeType, n.language as Language, count(n) as Count
 ORDER BY Count DESC
 ```
 
@@ -227,9 +242,66 @@ RETURN NodeType, NodeCount, RelCount
 ORDER BY NodeCount DESC
 ```
 
+## Multilingual Queries
+
+### 26. View Arabic Content Only
+```cypher
+MATCH (n)-[r]->(m)
+WHERE n.language = "arabic" AND m.language = "arabic"
+RETURN n, r, m
+LIMIT 50
+```
+
+### 27. View English Content Only
+```cypher
+MATCH (n)-[r]->(m)
+WHERE n.language = "english" AND m.language = "english"
+RETURN n, r, m
+LIMIT 50
+```
+
+### 28. View Mixed Language Content
+```cypher
+MATCH (n)-[r]->(m)
+WHERE n.language = "mixed" OR m.language = "mixed"
+RETURN n, r, m
+LIMIT 50
+```
+
+### 29. Count Entities by Language
+```cypher
+MATCH (n)
+RETURN n.language as Language, labels(n)[0] as NodeType, count(n) as Count
+ORDER BY Language, Count DESC
+```
+
+### 30. Find Arabic Legal Concepts
+```cypher
+MATCH (n)
+WHERE n.language = "arabic" AND "LegalConcept" IN labels(n)
+RETURN n.name, n.definition, n.category
+ORDER BY n.name
+```
+
+### 31. Find Arabic Entities by Type
+```cypher
+MATCH (n)
+WHERE n.language = "arabic" AND n.entity_type = "PERSON"
+RETURN n.name, n.description
+ORDER BY n.name
+```
+
+### 32. Cross-Language Relationships
+```cypher
+MATCH (n)-[r]->(m)
+WHERE n.language <> m.language
+RETURN n.name, n.language, type(r), m.name, m.language
+LIMIT 20
+```
+
 ## Database Management Queries
 
-### 26. Clear All Data (Use with caution!)
+### 33. Clear All Data (Use with caution!)
 ```cypher
 MATCH (n)
 DETACH DELETE n

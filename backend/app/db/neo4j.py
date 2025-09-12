@@ -176,6 +176,13 @@ class Neo4jManager:
                 "CREATE INDEX document_type_idx IF NOT EXISTS FOR (n:Document) ON (n.document_type)",
                 "CREATE INDEX legal_concept_category_idx IF NOT EXISTS FOR (n:LegalConcept) ON (n.category)",
                 "CREATE INDEX case_status_idx IF NOT EXISTS FOR (n:Case) ON (n.status)",
+                
+                # Multilingual support indexes
+                "CREATE INDEX entity_language_idx IF NOT EXISTS FOR (n:Entity) ON (n.language)",
+                "CREATE INDEX fact_language_idx IF NOT EXISTS FOR (n:Fact) ON (n.language)",
+                "CREATE INDEX document_language_idx IF NOT EXISTS FOR (n:Document) ON (n.language)",
+                "CREATE INDEX legalconcept_language_idx IF NOT EXISTS FOR (n:LegalConcept) ON (n.language)",
+                "CREATE INDEX case_language_idx IF NOT EXISTS FOR (n:Case) ON (n.language)",
             ]
             
             for index_query in indexes:
