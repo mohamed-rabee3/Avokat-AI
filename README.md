@@ -12,6 +12,13 @@
 
 [🚀 Quick Start](#-quick-start) • [📖 Documentation](#-documentation) • [🔧 Features](#-features) • [🏗️ Architecture](#️-architecture) • [📋 API Reference](#-api-reference)
 
+---
+
+## 🎥 **Demo Video**
+
+You can watch the **special demo video** showcasing Avokat AI in action here:  
+👉 [**Demo Video Link**](https://drive.google.com/drive/folders/1peael32ruG9K-ibhf2lYIr3d5LBltk75?usp=sharing)
+
 </div>
 
 ---
@@ -44,7 +51,7 @@ Avokat AI is an intelligent legal document analysis system that combines advance
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/avokat-ai.git
+   git clone https://github.com/mohamed-rabee3/avokat-ai.git
    cd avokat-ai
    ```
 
