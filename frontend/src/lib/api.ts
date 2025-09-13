@@ -77,7 +77,18 @@ class ApiService {
         throw new Error(errorData.detail || `HTTP ${response.status}`);
       }
 
-      return await response.json();
+      // Handle responses with no content (like DELETE 204)
+      if (response.status === 204 || response.headers.get('content-length') === '0') {
+        return undefined as T;
+      }
+
+      // Only try to parse JSON if there's content
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await response.json();
+      }
+
+      return undefined as T;
     } catch (error) {
       console.error(`API request failed for ${endpoint}:`, error);
       throw error;
@@ -98,6 +109,19 @@ class ApiService {
 
   async getSession(sessionId: number): Promise<Session> {
     return this.request<Session>(`/sessions/${sessionId}`);
+  }
+
+  async updateSession(sessionId: number, name: string): Promise<Session> {
+    return this.request<Session>(`/sessions/${sessionId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  async deleteSession(sessionId: number): Promise<void> {
+    await this.request<void>(`/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
   }
 
   // Chat API

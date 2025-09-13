@@ -4,7 +4,8 @@ from sqlalchemy import select
 from typing import List
 
 from ..db.sqlite import get_db, Session, Message, Upload
-from ..models.schemas import SessionCreate, SessionResponse, SessionWithMessages, SessionWithUploads, SessionWithAll
+from ..db.neo4j import neo4j_manager
+from ..models.schemas import SessionCreate, SessionUpdate, SessionResponse, SessionWithMessages, SessionWithUploads, SessionWithAll
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -66,6 +67,36 @@ async def get_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found"
         )
+    
+    return session
+
+
+@router.put("/{session_id}", response_model=SessionResponse)
+async def update_session(
+    session_id: int,
+    session_data: SessionUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update a session's name.
+    
+    - **name**: New session name (max 255 characters)
+    """
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+    
+    # Update session name if provided
+    if session_data.name is not None:
+        session.name = session_data.name
+    
+    await db.commit()
+    await db.refresh(session)
     
     return session
 
@@ -145,7 +176,7 @@ async def delete_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Delete a session and all its associated messages and uploads.
+    Delete a session and all its associated messages, uploads, and Neo4j knowledge graph data.
     """
     result = await db.execute(select(Session).where(Session.id == session_id))
     session = result.scalar_one_or_none()
@@ -156,7 +187,19 @@ async def delete_session(
             detail="Session not found"
         )
     
-    await db.delete(session)
-    await db.commit()
+    try:
+        # Clear Neo4j knowledge graph data for this session
+        await neo4j_manager.clear_session_data(session_id)
+        
+        # Delete SQLite session (messages and uploads will be cascade deleted)
+        await db.delete(session)
+        await db.commit()
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete session: {str(e)}"
+        )
     
     return None

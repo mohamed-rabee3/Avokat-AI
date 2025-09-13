@@ -62,19 +62,21 @@ Guidelines:
         return base_prompt
     
     def _build_context_prompt(self, retrieval_result: Dict[str, Any]) -> str:
-        """Build context prompt from retrieval results"""
+        """Build enhanced context prompt from retrieval results"""
         
         context_parts = []
         
         # Add entities context
         if retrieval_result.get("entities"):
-            context_parts.append("=== ENTITIES ===")
+            context_parts.append("=== ENTITIES FROM DOCUMENTS ===")
             for entity in retrieval_result["entities"]:
                 entity_info = f"- {entity['name']} ({entity['entity_type']})"
                 if entity.get("description"):
                     entity_info += f": {entity['description']}"
                 if entity.get("language"):
                     entity_info += f" [Language: {entity['language']}]"
+                if entity.get("relevance_score"):
+                    entity_info += f" [Relevance: {entity['relevance_score']}]"
                 context_parts.append(entity_info)
         
         # Add relationships context
@@ -86,11 +88,33 @@ Guidelines:
                     rel_info += f" [Language: {rel['language']}]"
                 context_parts.append(rel_info)
         
-        # Add context chunks
+        # Add expanded context (related entities and relationships)
+        if retrieval_result.get("expanded_context"):
+            context_parts.append("\n=== RELATED INFORMATION ===")
+            for item in retrieval_result["expanded_context"]:
+                if item["type"] == "expanded_entity":
+                    entity = item["entity"]
+                    rel_info = f"- Related: {entity['name']} ({entity['entity_type']})"
+                    if item.get("relationship_type"):
+                        rel_info += f" via {item['relationship_type']}"
+                    context_parts.append(rel_info)
+                elif item["type"] == "expanded_relationship":
+                    rel = item["relationship"]
+                    rel_info = f"- Relationship: {rel['type']}"
+                    if item.get("relationship_type"):
+                        rel_info += f" ({item['relationship_type']})"
+                    context_parts.append(rel_info)
+        
+        # Add context chunks (document content)
         if retrieval_result.get("context_chunks"):
-            context_parts.append("\n=== CONTEXT ===")
-            for chunk in retrieval_result["context_chunks"]:
-                context_parts.append(f"- {chunk}")
+            context_parts.append("\n=== DOCUMENT CONTENT ===")
+            for i, chunk in enumerate(retrieval_result["context_chunks"]):
+                context_parts.append(f"Chunk {i+1}: {chunk}")
+        
+        # Add search terms used for transparency
+        if retrieval_result.get("search_terms"):
+            context_parts.append(f"\n=== SEARCH TERMS USED ===")
+            context_parts.append(f"Terms: {', '.join(retrieval_result['search_terms'])}")
         
         return "\n".join(context_parts)
     

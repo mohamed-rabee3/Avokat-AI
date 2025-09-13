@@ -8,6 +8,10 @@ class SessionCreate(BaseModel):
     name: Optional[str] = Field(None, max_length=255, description="Optional session name")
 
 
+class SessionUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=255, description="New session name")
+
+
 class SessionResponse(BaseModel):
     id: int
     name: Optional[str]

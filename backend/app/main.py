@@ -20,6 +20,7 @@ from .routers import sessions, neo4j, chat
 from .services.retrieval import retrieval_service
 from .services.llm import initialize_llm_service
 from .services.kg_builder import kg_builder
+from .services.embedding_service import embedding_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -49,6 +50,10 @@ async def lifespan(app: FastAPI):
             database=settings.neo4j_database
         )
         logger.info("Retrieval service initialized")
+        
+        # Initialize embedding service
+        embedding_service.initialize()
+        logger.info("Embedding service initialized")
         
     except Exception as e:
         logger.error(f"Failed to initialize Neo4j: {e}")

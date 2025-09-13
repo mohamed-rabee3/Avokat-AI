@@ -88,11 +88,16 @@ async def chat(
             })
         
         # Retrieve relevant information from knowledge graph
+        # Use "mixed" language to search across all languages
         retrieval_result = retrieval_service.retrieve_entities_and_relationships(
             query=message,
-            session_id=session_id,
+            session_id=str(session_id),  # Convert to string for Neo4j compatibility
+            language="mixed",  # Search across all languages
             limit=15
         )
+        
+        # Debug logging
+        logger.info(f"Retrieval result for query '{message}': entities={len(retrieval_result.get('entities', []))}, relationships={len(retrieval_result.get('relationships', []))}, context_chunks={len(retrieval_result.get('context_chunks', []))}")
         
         # Always proceed with LLM generation, even without context
         # The LLM can provide general legal assistance even without specific documents
@@ -228,11 +233,16 @@ async def chat_non_streaming(
             })
         
         # Retrieve relevant information
+        # Use "mixed" language to search across all languages
         retrieval_result = retrieval_service.retrieve_entities_and_relationships(
             query=message,
-            session_id=session_id,
+            session_id=str(session_id),  # Convert to string for Neo4j compatibility
+            language="mixed",  # Search across all languages
             limit=15
         )
+        
+        # Debug logging
+        logger.info(f"Retrieval result for query '{message}': entities={len(retrieval_result.get('entities', []))}, relationships={len(retrieval_result.get('relationships', []))}, context_chunks={len(retrieval_result.get('context_chunks', []))}")
         
         # Always use LLM - with or without document context
         # If no specific context found, LLM will still respond with general knowledge
@@ -323,7 +333,7 @@ async def get_chat_history(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 def _extract_sources(retrieval_result: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Extract sources from retrieval result for citations"""
+    """Extract sources from enhanced retrieval result for citations"""
     sources = []
     
     # Add entity sources
@@ -332,7 +342,8 @@ def _extract_sources(retrieval_result: Dict[str, Any]) -> List[Dict[str, Any]]:
             "type": "entity",
             "name": entity.get("name"),
             "entity_type": entity.get("entity_type"),
-            "language": entity.get("language")
+            "language": entity.get("language"),
+            "relevance_score": entity.get("relevance_score")
         })
     
     # Add relationship sources
@@ -341,6 +352,43 @@ def _extract_sources(retrieval_result: Dict[str, Any]) -> List[Dict[str, Any]]:
             "type": "relationship",
             "relationship_type": rel.get("type"),
             "language": rel.get("language")
+        })
+    
+    # Add expanded context sources
+    for item in retrieval_result.get("expanded_context", []):
+        if item["type"] == "expanded_entity":
+            entity = item["entity"]
+            sources.append({
+                "type": "related_entity",
+                "name": entity.get("name"),
+                "entity_type": entity.get("entity_type"),
+                "relationship_type": item.get("relationship_type"),
+                "language": entity.get("language")
+            })
+        elif item["type"] == "expanded_relationship":
+            rel = item["relationship"]
+            sources.append({
+                "type": "related_relationship",
+                "relationship_type": rel.get("type"),
+                "connection_type": item.get("relationship_type"),
+                "language": rel.get("language")
+            })
+    
+    # Add context chunk sources (document content)
+    for i, chunk in enumerate(retrieval_result.get("context_chunks", [])):
+        sources.append({
+            "type": "document_chunk",
+            "content_preview": chunk[:100] + "..." if len(chunk) > 100 else chunk,
+            "language": retrieval_result.get("language", "unknown"),
+            "chunk_index": i
+        })
+    
+    # Add search terms for transparency
+    if retrieval_result.get("search_terms"):
+        sources.append({
+            "type": "search_info",
+            "search_terms": retrieval_result["search_terms"],
+            "language": retrieval_result.get("language", "unknown")
         })
     
     return sources

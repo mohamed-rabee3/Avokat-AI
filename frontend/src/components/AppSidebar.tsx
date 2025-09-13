@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, History, Settings, HelpCircle, Plus, Trash2 } from 'lucide-react';
+import { MessageCircle, History, Settings, HelpCircle, Plus, Trash2, Edit2 } from 'lucide-react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
 import {
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { cn } from '@/lib/utils';
 import { chatStore, ChatSession } from '@/lib/chatStore';
@@ -41,6 +42,8 @@ export function AppSidebar() {
   const [chatSessions, setChatSessions] = useState<BackendSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState<string>('');
   
   const isCollapsed = state === 'collapsed';
   const isActive = (path: string) => currentPath === path;
@@ -93,13 +96,78 @@ export function AppSidebar() {
     event.preventDefault();
     event.stopPropagation();
     
-    // Note: Backend doesn't have delete session endpoint yet
-    // For now, just show a message
-    toast({
-      title: "Delete not available",
-      description: "Session deletion is not yet implemented",
-      variant: "destructive",
-    });
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this session? This action cannot be undone and will remove all messages and uploaded documents."
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+    
+    try {
+      await apiService.deleteSession(sessionId);
+      await loadSessions();
+      
+      // If we deleted the current session, navigate to home
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        navigate('/');
+      }
+      
+      toast({
+        title: "Session deleted",
+        description: "The session has been successfully deleted",
+      });
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete session",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStartRename = (sessionId: number, currentName: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setEditingSessionId(sessionId);
+    setEditingName(currentName || `Session ${sessionId}`);
+  };
+
+  const handleCancelRename = () => {
+    setEditingSessionId(null);
+    setEditingName('');
+  };
+
+  const handleSaveRename = async (sessionId: number) => {
+    try {
+      await apiService.updateSession(sessionId, editingName);
+      await loadSessions();
+      setEditingSessionId(null);
+      setEditingName('');
+      
+      toast({
+        title: "Session renamed",
+        description: "The session has been successfully renamed",
+      });
+    } catch (error) {
+      console.error('Failed to rename session:', error);
+      toast({
+        title: "Error",
+        description: "Failed to rename session",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleKeyPress = (event: React.KeyboardEvent, sessionId: number) => {
+    if (event.key === 'Enter') {
+      handleSaveRename(sessionId);
+    } else if (event.key === 'Escape') {
+      handleCancelRename();
+    }
   };
 
   const handleSessionClick = (sessionId: number) => {
@@ -149,7 +217,54 @@ export function AppSidebar() {
           <SidebarGroup>
             <SidebarGroupLabel>Recent Chats</SidebarGroupLabel>
             <SidebarGroupContent>
-              <ScrollArea className="h-64">
+              {chatSessions.length > 5 ? (
+                <ScrollArea className="h-64">
+                  <div className="space-y-1">
+                    {chatSessions.slice(0, 10).map((session) => (
+                      <div
+                        key={session.id}
+                        className={cn(
+                          'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors hover:bg-sidebar-accent',
+                          currentSessionId === session.id && 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
+                        )}
+                        onClick={() => !editingSessionId && handleSessionClick(session.id)}
+                      >
+                        <MessageCircle className="w-3 h-3 flex-shrink-0" />
+                        {editingSessionId === session.id ? (
+                          <Input
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onKeyDown={(e) => handleKeyPress(e, session.id)}
+                            onBlur={() => handleSaveRename(session.id)}
+                            className="h-6 text-xs px-1 py-0 flex-1"
+                            autoFocus
+                          />
+                        ) : (
+                          <span className="flex-1 truncate min-w-0">{session.name || `Session ${session.id}`}</span>
+                        )}
+                        <div className="flex gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 hover-scale"
+                            onClick={(e) => handleStartRename(session.id, session.name || '', e)}
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 hover-scale"
+                            onClick={(e) => handleDeleteSession(session.id, e)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
                 <div className="space-y-1">
                   {chatSessions.slice(0, 10).map((session) => (
                     <div
@@ -158,22 +273,43 @@ export function AppSidebar() {
                         'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm cursor-pointer transition-colors hover:bg-sidebar-accent',
                         currentSessionId === session.id && 'bg-sidebar-accent text-sidebar-accent-foreground font-medium'
                       )}
-                      onClick={() => handleSessionClick(session.id)}
+                      onClick={() => !editingSessionId && handleSessionClick(session.id)}
                     >
                       <MessageCircle className="w-3 h-3 flex-shrink-0" />
-                      <span className="flex-1 truncate">{session.name || `Session ${session.id}`}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover-scale"
-                        onClick={(e) => handleDeleteSession(session.id, e)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      {editingSessionId === session.id ? (
+                        <Input
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyDown={(e) => handleKeyPress(e, session.id)}
+                          onBlur={() => handleSaveRename(session.id)}
+                          className="h-6 text-xs px-1 py-0 flex-1"
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="flex-1 truncate min-w-0">{session.name || `Session ${session.id}`}</span>
+                      )}
+                      <div className="flex gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 hover-scale"
+                          onClick={(e) => handleStartRename(session.id, session.name || '', e)}
+                        >
+                          <Edit2 className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 hover-scale"
+                          onClick={(e) => handleDeleteSession(session.id, e)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}

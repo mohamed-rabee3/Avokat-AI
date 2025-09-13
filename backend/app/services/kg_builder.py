@@ -293,18 +293,25 @@ class Neo4jKnowledgeGraphBuilder:
             return {}
     
     async def store_document_chunk(self, document: Document, session_id: int, chunk_index: int):
-        """Store document chunk for retrieval"""
+        """Store document chunk for retrieval with embeddings"""
         try:
             # Detect language
             detected_language = language_detector.detect_language(document.page_content)
             
-            # Create document chunk node
+            # Generate embedding for the document content
+            from .embedding_service import embedding_service
+            embedding = embedding_service.generate_embedding(document.page_content)
+            embedding_str = embedding_service.embedding_to_string(embedding)
+            
+            # Create document chunk node with embedding
             chunk_query = """
             CREATE (c:DocumentChunk {
                 session_id: $session_id,
                 chunk_index: $chunk_index,
                 content: $content,
                 language: $language,
+                embedding: $embedding,
+                embedding_dimension: $embedding_dimension,
                 created_at: datetime(),
                 metadata: $metadata
             })
@@ -324,10 +331,12 @@ class Neo4jKnowledgeGraphBuilder:
                 "chunk_index": chunk_index,
                 "content": document.page_content,
                 "language": detected_language,
+                "embedding": embedding_str,
+                "embedding_dimension": embedding_service.get_embedding_dimension(),
                 "metadata": metadata_json
             })
             
-            logger.info(f"Stored document chunk {chunk_index} for session {session_id} (content length: {len(document.page_content)})")
+            logger.info(f"Stored document chunk {chunk_index} for session {session_id} with embedding (content length: {len(document.page_content)})")
             
         except Exception as e:
             logger.error(f"Failed to store document chunk: {e}")

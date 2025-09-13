@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, User, Bot, Upload, FileText } from 'lucide-react';
+import { Send, Paperclip, User, Bot, Upload, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -40,6 +40,8 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [backendSessionId, setBackendSessionId] = useState<number | null>(null);
   const [sessionName, setSessionName] = useState<string>('New Chat');
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -47,7 +49,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
   // Initialize or load session
   useEffect(() => {
     const initializeSession = async () => {
+      // Prevent multiple initializations
+      if (backendSessionId !== null) {
+        return;
+      }
+
       try {
+        setIsInitializing(true);
         let session: BackendSession;
         
         if (sessionId && !isNaN(Number(sessionId))) {
@@ -66,11 +74,10 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           }));
           setMessages(localMessages);
         } else {
-          // Create new session
-          session = await apiService.createSession('New Chat');
-          setBackendSessionId(session.id);
-          setSessionName(session.name || `Session ${session.id}`);
+          // Don't automatically create a new session - let user click "New Chat" button
+          // This prevents unwanted session creation after deletion
           setMessages([]);
+          setSessionName('Welcome');
         }
       } catch (error) {
         console.error('Failed to initialize session:', error);
@@ -79,11 +86,13 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           description: "Failed to initialize chat session. Please refresh the page.",
           variant: "destructive",
         });
+      } finally {
+        setIsInitializing(false);
       }
     };
 
     initializeSession();
-  }, [sessionId, toast]);
+  }, [sessionId, toast, backendSessionId]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -173,7 +182,29 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const toggleSources = (messageId: string) => {
+    setExpandedSources(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+      }
+      return newSet;
+    });
+  };
+
   const hasUploadedFiles = messages.some(msg => msg.type === 'assistant' && msg.sources && msg.sources.length > 0);
+
+  // Show loading state while initializing
+  if (isInitializing) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <p className="mt-4 text-muted-foreground">Initializing chat...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -206,9 +237,14 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
           {messages.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-medium mb-2">Welcome to Avokat AI</p>
+              <p className="text-lg font-medium mb-2">
+                {backendSessionId ? "Welcome to Avokat AI" : "Start a New Chat"}
+              </p>
               <p className="text-sm">
-                Upload legal documents to start asking questions about their content.
+                {backendSessionId 
+                  ? "Upload legal documents to start asking questions about their content."
+                  : "Click 'New Chat' in the sidebar to begin a conversation."
+                }
               </p>
             </div>
           )}
@@ -245,21 +281,33 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
                 {/* Sources */}
                 {message.sources && message.sources.length > 0 && (
                   <div className="mt-3 pt-2 border-t border-border/50">
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Sources:</p>
-                    <div className="space-y-1">
-                      {message.sources.map((source, index) => (
-                        <div
-                          key={index}
-                          className="text-xs bg-muted/50 rounded px-2 py-1"
-                        >
-                          <span className="font-medium">{source.type}:</span>{' '}
-                          {source.name || source.entity_type || source.relationship_type}
-                          {source.language && (
-                            <span className="text-muted-foreground ml-1">({source.language})</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    <button
+                      onClick={() => toggleSources(message.id)}
+                      className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+                    >
+                      {expandedSources.has(message.id) ? (
+                        <ChevronDown className="h-3 w-3" />
+                      ) : (
+                        <ChevronRight className="h-3 w-3" />
+                      )}
+                      Sources ({message.sources.length})
+                    </button>
+                    {expandedSources.has(message.id) && (
+                      <div className="space-y-1 animate-fade-in">
+                        {message.sources.map((source, index) => (
+                          <div
+                            key={index}
+                            className="text-xs bg-muted/50 rounded px-2 py-1"
+                          >
+                            <span className="font-medium">{source.type}:</span>{' '}
+                            {source.name || source.entity_type || source.relationship_type}
+                            {source.language && (
+                              <span className="text-muted-foreground ml-1">({source.language})</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -325,47 +373,49 @@ export function ChatInterface({ sessionId }: ChatInterfaceProps) {
       )}
 
       {/* Chat Input */}
-      <div className="border-t p-4">
-        <div className="flex gap-2 items-end">
-          <div className="flex-1 relative">
-            <Input
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Ask a question about your documents..."
-              className="chat-input pr-12"
-              disabled={isLoading || isUploading}
-            />
+      {backendSessionId && (
+        <div className="border-t p-4">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 relative">
+              <Input
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Ask a question about your documents..."
+                className="chat-input pr-12"
+                disabled={isLoading || isUploading}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover-scale"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || isUploading}
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
+            </div>
+            
             <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 hover-scale"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading || isUploading}
+              onClick={handleSendMessage}
+              disabled={(!inputValue.trim() && selectedFiles.length === 0) || isLoading || isUploading}
+              className="px-4 hover-scale"
             >
-              <Paperclip className="h-4 w-4" />
+              <Send className="h-4 w-4" />
             </Button>
           </div>
           
-          <Button
-            onClick={handleSendMessage}
-            disabled={(!inputValue.trim() && selectedFiles.length === 0) || isLoading || isUploading}
-            className="px-4 hover-scale"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+            accept=".pdf"
+          />
         </div>
-        
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={handleFileSelect}
-          accept=".pdf"
-        />
-      </div>
+      )}
     </div>
   );
 }

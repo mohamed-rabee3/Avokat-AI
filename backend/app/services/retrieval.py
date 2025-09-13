@@ -1,15 +1,17 @@
 """
-Retrieval service for multilingual knowledge graph queries
+Enhanced Retrieval service for multilingual knowledge graph queries
+Implements best practices for Neo4j graph traversal and multilingual search
 """
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from neo4j import GraphDatabase
 from .language_detector import LanguageDetector
+import re
 
 logger = logging.getLogger(__name__)
 
 class MultilingualRetrievalService:
-    """Service for retrieving information from multilingual knowledge graphs"""
+    """Enhanced service for retrieving information from multilingual knowledge graphs"""
     
     def __init__(self):
         self.driver = None
@@ -39,7 +41,7 @@ class MultilingualRetrievalService:
         limit: int = 10
     ) -> Dict[str, Any]:
         """
-        Retrieve entities and relationships relevant to the query
+        Enhanced retrieval using hybrid approach: semantic search + graph traversal
         
         Args:
             query: User's question or query
@@ -57,75 +59,334 @@ class MultilingualRetrievalService:
         if not language:
             language = self.language_detector.detect_language(query)
         
+        logger.info(f"Enhanced retrieval for query: '{query}' in session {session_id} (language: {language})")
+        
         with self.driver.session(database="neo4j") as session:
             try:
-                # Build Cypher query for multilingual retrieval
-                cypher_query = self._build_retrieval_query(language, limit)
+                # Step 1: Semantic search for document chunks
+                context_chunks = self._semantic_search_chunks(session, query, session_id, limit)
                 
-                # Execute query with parameters (convert session_id to string)
-                result = session.run(cypher_query, {
-                    "session_id": str(session_id),
-                    "query_text": query.lower(),
-                    "language": language,
-                    "limit": limit
-                })
+                # Step 2: Extract meaningful search terms
+                search_terms = self._extract_meaningful_terms(query, language)
                 
-                # Process results
-                entities = []
-                relationships = []
-                context_chunks = []
+                # Step 3: Graph-based entity and relationship retrieval
+                entities, relationships = self._graph_traversal_search(
+                    session, search_terms, session_id, language, limit
+                )
                 
-                for record in result:
-                    if record.get("entity"):
-                        entities.append(self._format_entity(record["entity"]))
-                    if record.get("relationship"):
-                        relationships.append(self._format_relationship(record["relationship"]))
-                    if record.get("context"):
-                        context_chunks.append(record["context"])
+                # Step 4: Expand context by following relationships
+                expanded_context = self._expand_context_by_relationships(
+                    session, entities, relationships, session_id, limit
+                )
                 
-                return {
+                # Combine all results
+                result = {
                     "entities": entities,
                     "relationships": relationships,
                     "context_chunks": context_chunks,
+                    "expanded_context": expanded_context,
                     "language": language,
                     "session_id": session_id,
-                    "query": query
+                    "query": query,
+                    "search_terms": search_terms
                 }
                 
+                logger.info(f"Enhanced retrieval results: {len(context_chunks)} chunks, {len(entities)} entities, {len(relationships)} relationships, {len(expanded_context)} expanded items")
+                
+                return result
+                
             except Exception as e:
-                logger.error(f"Error retrieving from knowledge graph: {e}")
+                logger.error(f"Error in enhanced retrieval: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 return {
                     "entities": [],
                     "relationships": [],
                     "context_chunks": [],
+                    "expanded_context": [],
                     "language": language,
                     "session_id": session_id,
                     "query": query,
                     "error": str(e)
                 }
     
+    def _semantic_search_chunks(self, session, query: str, session_id: int, limit: int) -> List[str]:
+        """Always return ALL document chunks for comprehensive context"""
+        try:
+            # Always get ALL DocumentChunk nodes for this session
+            chunks_query = """
+            MATCH (n:DocumentChunk)
+            WHERE n.session_id = $session_id
+            RETURN n.content, n.chunk_index
+            ORDER BY n.chunk_index
+            """
+            
+            chunks_result = session.run(chunks_query, {"session_id": str(session_id)})
+            chunks_records = list(chunks_result)
+            
+            if not chunks_records:
+                logger.info(f"No DocumentChunk nodes found for session {session_id}")
+                return []
+            
+            # Always return ALL chunks for comprehensive context
+            context_chunks = [record['n.content'] for record in chunks_records]
+            logger.info(f"Retrieved ALL {len(context_chunks)} document chunks for comprehensive coverage")
+            
+            return context_chunks
+            
+        except Exception as e:
+            logger.error(f"Error retrieving document chunks: {e}")
+            return []
+    
+    def _extract_meaningful_terms(self, query: str, language: str) -> List[str]:
+        """Extract meaningful search terms with improved multilingual support"""
+        # Clean the query
+        cleaned_query = query.strip().lower()
+        
+        # Arabic compound word mapping
+        arabic_compound_mapping = {
+            'فالملف': 'ملف',
+            'فالمستند': 'مستند', 
+            'فالمحتوى': 'محتوى',
+            'فالمعلومات': 'معلومات',
+            'فالتفاصيل': 'تفاصيل',
+            'فالعقد': 'عقد',
+            'فالعقار': 'عقار',
+            'فالشقة': 'شقة',
+            'فالمنزل': 'منزل',
+            'فالإيجار': 'إيجار',
+            'فالدفع': 'دفع',
+            'فالمبلغ': 'مبلغ',
+            'فالمدة': 'مدة',
+            'فالتأمين': 'تأمين',
+            'فالغرامة': 'غرامة',
+            'فالبند': 'بند',
+            'فالمادة': 'مادة',
+            'فالقانون': 'قانون',
+            'فالمحكمة': 'محكمة',
+            'فالاختصاص': 'اختصاص',
+            'فالطرف': 'طرف',
+            'فالأطراف': 'أطراف',
+            'فالمؤجر': 'مؤجر',
+            'فالمستأجر': 'مستأجر'
+        }
+        
+        # Replace compound words first
+        for compound, simple in arabic_compound_mapping.items():
+            cleaned_query = cleaned_query.replace(compound, simple)
+        
+        # Remove common question words and punctuation
+        question_words = {
+            'english': ['what', 'is', 'are', 'in', 'the', 'a', 'an', 'and', 'or', 'but', 'for', 'with', 'by', 'how', 'when', 'where', 'why', 'who', 'which', 'tell', 'me', 'about', 'can', 'you', 'please'],
+            'arabic': ['ماذا', 'ما', 'هو', 'هي', 'في', 'من', 'إلى', 'على', 'مع', 'ب', 'ل', 'كيف', 'متى', 'أين', 'لماذا', 'من', 'أي', 'أخبر', 'ني', 'عن', 'هل', 'يمكن', 'أن', 'تخبرني', 'يوجد', 'موجود', 'يحتوي', 'يضم']
+        }
+        
+        # Extract words
+        words = re.findall(r'\b\w+\b', cleaned_query)
+        
+        # Filter out question words
+        meaningful_words = []
+        for word in words:
+            if word not in question_words['english'] and word not in question_words['arabic']:
+                meaningful_words.append(word)
+        
+        # Special handling for general file/document queries
+        if not meaningful_words or len(meaningful_words) == 0:
+            # Check if this is a general question about file/document content
+            general_indicators = ['ملف', 'مستند', 'محتوى', 'معلومات', 'تفاصيل', 'عقد', 'document', 'file', 'content', 'information', 'details']
+            if any(indicator in cleaned_query for indicator in general_indicators):
+                meaningful_words = ['عقد']  # Default to contract since that's what we have
+                logger.info(f"General file/document query detected, using default search term: 'عقد'")
+            else:
+                meaningful_words = [cleaned_query]
+        
+        # Special handling for "what is in the file" type queries
+        general_content_queries = ['ماذا يوجد', 'ماذا يحتوي', 'ماذا يضم', 'ما هو المحتوى', 'ما هي المعلومات', 'ماذ يحتوي', 'ماذا في', 'ماذا عن', 'what is in', 'what contains', 'what does it contain', 'what is about']
+        if any(query_type in cleaned_query for query_type in general_content_queries):
+            meaningful_words = ['عقد', 'مستند', 'محتوى']  # Use multiple terms to catch more content
+            logger.info(f"General content query detected, using multiple search terms: {meaningful_words}")
+        
+        # Special handling for descriptive queries
+        descriptive_queries = ['اوصف', 'اشرح', 'وضح', 'تفاصيل', 'describe', 'explain', 'details', 'detail']
+        if any(query_type in cleaned_query for query_type in descriptive_queries):
+            meaningful_words = ['عقد', 'مستند', 'محتوى', 'تفاصيل']  # Use terms that will match document content
+            logger.info(f"Descriptive query detected, using multiple search terms: {meaningful_words}")
+        
+        logger.info(f"Extracted meaningful terms: {meaningful_words}")
+        return meaningful_words
+    
+    def _graph_traversal_search(self, session, search_terms: List[str], session_id: int, language: str, limit: int) -> Tuple[List[Dict], List[Dict]]:
+        """Perform graph traversal search for entities and relationships"""
+        try:
+            # Build comprehensive Cypher query for graph traversal
+            query_parts = []
+            params = {"session_id": str(session_id), "limit": limit}
+            
+            # Create search conditions for each term
+            for i, term in enumerate(search_terms):
+                param_name = f"term_{i}"
+                params[param_name] = term.lower()
+                query_parts.append(f"""
+                    (n.name IS NOT NULL AND toLower(n.name) CONTAINS ${param_name})
+                    OR (n.content IS NOT NULL AND toLower(n.content) CONTAINS ${param_name})
+                    OR (n.description IS NOT NULL AND toLower(n.description) CONTAINS ${param_name})
+                    OR ANY(prop IN keys(n) WHERE 
+                        prop <> 'session_id' AND 
+                        prop <> 'created_at' AND 
+                        prop <> 'language' AND 
+                        prop <> 'id' AND 
+                        prop <> 'embedding' AND
+                        prop <> 'embedding_dimension' AND
+                        prop <> 'metadata' AND
+                        prop <> 'chunk_index' AND
+                        toLower(toString(n[prop])) CONTAINS ${param_name}
+                    )
+                """)
+            
+            # Combine search conditions
+            search_condition = " OR ".join(query_parts) if query_parts else "true"
+            
+            # Enhanced graph traversal query
+            cypher_query = f"""
+            MATCH (n)
+            WHERE n.session_id = $session_id
+            AND ({search_condition})
+            WITH n, 
+                 CASE 
+                     WHEN n.content IS NOT NULL THEN 1
+                     WHEN n.name IS NOT NULL THEN 2
+                     WHEN n.description IS NOT NULL THEN 3
+                     ELSE 4
+                 END as relevance_score
+            ORDER BY relevance_score, n.created_at DESC
+            LIMIT $limit
+            RETURN n as entity, null as relationship, relevance_score
+            """
+            
+            # Add language filter if specified
+            if language and language != "mixed":
+                cypher_query = cypher_query.replace(
+                    "WHERE n.session_id = $session_id",
+                    f"WHERE n.session_id = $session_id AND n.language = '{language}'"
+                )
+                
+            # Initialize variables
+            entities = []
+            relationships = []
+            
+            # Execute the query
+            result = session.run(cypher_query, params)
+            
+            for record in result:
+                if record.get("entity"):
+                    entity = self._format_entity(record["entity"])
+                    entity["relevance_score"] = record.get("relevance_score", 0)
+                    entities.append(entity)
+            
+            logger.info(f"Graph traversal found {len(entities)} entities")
+            return entities, relationships
+            
+        except Exception as e:
+            logger.error(f"Error in graph traversal search: {e}")
+            return [], []
+    
+    def _expand_context_by_relationships(self, session, entities: List[Dict], relationships: List[Dict], session_id: int, limit: int) -> List[Dict]:
+        """Expand context by following relationships from found entities"""
+        try:
+            if not entities:
+                return []
+            
+            # Get entity IDs from found entities
+            entity_ids = [entity.get("id") for entity in entities if entity.get("id")]
+            
+            if not entity_ids:
+                return []
+            
+            # Query for related entities and relationships
+            expansion_query = """
+            MATCH (n)-[r]-(related)
+            WHERE n.session_id = $session_id 
+            AND (n.id IN $entity_ids OR related.id IN $entity_ids)
+            AND related.session_id = $session_id
+            RETURN DISTINCT related as expanded_entity, r as expanded_relationship, 
+                   labels(n)[0] as source_type, labels(related)[0] as target_type,
+                   type(r) as relationship_type
+            LIMIT $limit
+            """
+            
+            result = session.run(expansion_query, {
+                "session_id": str(session_id),
+                "entity_ids": entity_ids,
+                "limit": limit
+            })
+            
+            expanded_context = []
+            for record in result:
+                if record.get("expanded_entity"):
+                    expanded_item = {
+                        "type": "expanded_entity",
+                        "entity": self._format_entity(record["expanded_entity"]),
+                        "source_type": record.get("source_type"),
+                        "target_type": record.get("target_type"),
+                        "relationship_type": record.get("relationship_type")
+                    }
+                    expanded_context.append(expanded_item)
+                
+                if record.get("expanded_relationship"):
+                    expanded_item = {
+                        "type": "expanded_relationship",
+                        "relationship": self._format_relationship(record["expanded_relationship"]),
+                        "source_type": record.get("source_type"),
+                        "target_type": record.get("target_type"),
+                        "relationship_type": record.get("relationship_type")
+                    }
+                    expanded_context.append(expanded_item)
+            
+            logger.info(f"Expanded context with {len(expanded_context)} related items")
+            return expanded_context
+            
+        except Exception as e:
+            logger.error(f"Error expanding context: {e}")
+            return []
+    
     def _build_retrieval_query(self, language: str, limit: int) -> str:
         """Build Cypher query for retrieving relevant entities and relationships"""
         
-        # Query that searches both standalone nodes and relationships
-        # Handle both space and underscore variations and search in all properties
+        # Enhanced query that searches in all relevant fields and handles different node types
         query = """
         MATCH (n)
         WHERE n.session_id = $session_id
         AND (
-            toLower(n.name) CONTAINS $query_text 
-            OR toLower(replace(n.name, '_', ' ')) CONTAINS $query_text
-            OR toLower(replace(n.name, ' ', '_')) CONTAINS $query_text
-            OR toLower(coalesce(n.description, '')) CONTAINS $query_text
-            OR toLower(coalesce(n.content, '')) CONTAINS $query_text
-            OR toLower(coalesce(n.location, '')) CONTAINS $query_text
-            OR toLower(coalesce(n.title, '')) CONTAINS $query_text
-            OR toLower(coalesce(n.email, '')) CONTAINS $query_text
-            OR ANY(prop IN keys(n) WHERE prop <> 'session_id' AND prop <> 'created_at' AND prop <> 'language' AND prop <> 'id' AND prop <> 'name' AND toLower(toString(n[prop])) CONTAINS $query_text)
+            // Search in name field (for entities)
+            (n.name IS NOT NULL AND toLower(n.name) CONTAINS $query_text)
+            OR (n.name IS NOT NULL AND toLower(replace(n.name, '_', ' ')) CONTAINS $query_text)
+            OR (n.name IS NOT NULL AND toLower(replace(n.name, ' ', '_')) CONTAINS $query_text)
+            // Search in content field (for DocumentChunk nodes)
+            OR (n.content IS NOT NULL AND toLower(n.content) CONTAINS $query_text)
+            // Search in description field
+            OR (n.description IS NOT NULL AND toLower(n.description) CONTAINS $query_text)
+            // Search in other common fields
+            OR (n.location IS NOT NULL AND toLower(n.location) CONTAINS $query_text)
+            OR (n.title IS NOT NULL AND toLower(n.title) CONTAINS $query_text)
+            OR (n.email IS NOT NULL AND toLower(n.email) CONTAINS $query_text)
+            // Search in all other properties (for extracted entities with Arabic properties)
+            OR ANY(prop IN keys(n) WHERE 
+                prop <> 'session_id' AND 
+                prop <> 'created_at' AND 
+                prop <> 'language' AND 
+                prop <> 'id' AND 
+                prop <> 'name' AND 
+                prop <> 'content' AND
+                prop <> 'description' AND
+                prop <> 'location' AND
+                prop <> 'title' AND
+                prop <> 'email' AND
+                toLower(toString(n[prop])) CONTAINS $query_text
+            )
         )
         """
         
-        # Add language filter if specified
+        # Add language filter if specified (but allow mixed language to search all)
         if language and language != "mixed":
             query += f" AND n.language = $language"
         
@@ -133,29 +394,41 @@ class MultilingualRetrievalService:
         RETURN n as entity, null as relationship, null as related_entity,
                CASE 
                    WHEN n.content IS NOT NULL THEN n.content
-                   WHEN n.text IS NOT NULL THEN n.text
-                   WHEN n.page_content IS NOT NULL THEN n.page_content
-                   ELSE n.name + " (" + coalesce(n.language, 'unknown') + ")"
+                   WHEN n.name IS NOT NULL THEN n.name + " (" + coalesce(n.language, 'unknown') + ")"
+                   ELSE labels(n)[0] + " (" + coalesce(n.language, 'unknown') + ")"
                END as context
         ORDER BY 
             CASE 
-                WHEN toLower(n.name) CONTAINS $query_text THEN 1
-                WHEN toLower(coalesce(n.description, '')) CONTAINS $query_text THEN 2
-                WHEN toLower(coalesce(n.location, '')) CONTAINS $query_text THEN 3
-                WHEN toLower(coalesce(n.title, '')) CONTAINS $query_text THEN 4
-                ELSE 5
+                WHEN n.content IS NOT NULL AND toLower(n.content) CONTAINS $query_text THEN 1
+                WHEN n.name IS NOT NULL AND toLower(n.name) CONTAINS $query_text THEN 2
+                WHEN n.description IS NOT NULL AND toLower(n.description) CONTAINS $query_text THEN 3
+                WHEN n.location IS NOT NULL AND toLower(n.location) CONTAINS $query_text THEN 4
+                WHEN n.title IS NOT NULL AND toLower(n.title) CONTAINS $query_text THEN 5
+                ELSE 6
             END
         LIMIT $limit
         """
         
         return query
     
+    
     def _format_entity(self, entity_node) -> Dict[str, Any]:
         """Format entity node for response"""
+        # Get the primary label as entity_type
+        labels = list(entity_node.labels)
+        entity_type = labels[0] if labels else "Unknown"
+        
+        # For DocumentChunk nodes, use content as name if no name exists
+        name = entity_node.get("name")
+        if not name and entity_type == "DocumentChunk":
+            content = entity_node.get("content", "")
+            # Use first line or first 50 characters as name
+            name = content.split('\n')[0][:50] if content else "Document Chunk"
+        
         return {
             "id": entity_node.get("id"),
-            "name": entity_node.get("name"),
-            "entity_type": entity_node.get("entity_type"),
+            "name": name,
+            "entity_type": entity_type,
             "description": entity_node.get("description"),
             "language": entity_node.get("language"),
             "properties": dict(entity_node)

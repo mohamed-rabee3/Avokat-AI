@@ -227,7 +227,7 @@ class Neo4jManager:
         ORDER BY label
         """
         
-        results = await self.execute_query(stats_query, {"session_id": session_id})
+        results = await self.execute_query(stats_query, {"session_id": str(session_id)})
         
         stats = {}
         for result in results:
@@ -243,7 +243,7 @@ class Neo4jManager:
         DETACH DELETE n
         """
         
-        await self.execute_query(delete_query, {"session_id": session_id})
+        await self.execute_query(delete_query, {"session_id": str(session_id)})
         logger.info(f"Cleared all data for session {session_id}")
 
 
