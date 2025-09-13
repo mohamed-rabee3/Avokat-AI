@@ -18,9 +18,11 @@ langchain-core>=0.1.0
 # Google Gemini for LLM
 google-generativeai>=0.3.0
 langchain-google-genai>=1.0.0
+google-genai>=0.1.0
 # Sentence transformers for local embeddings
 sentence-transformers>=2.2.0
 # Scikit-learn for TF-IDF embeddings
 scikit-learn>=1.3.0
 # Additional dependencies
 tqdm>=4.65.0
+langdetect>=1.0.9

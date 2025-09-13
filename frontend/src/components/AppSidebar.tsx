@@ -19,6 +19,7 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { cn } from '@/lib/utils';
 import { chatStore, ChatSession } from '@/lib/chatStore';
 import { useToast } from '@/hooks/use-toast';
+import { apiService, Session as BackendSession } from '@/lib/api';
 
 const mainItems = [
   { title: 'New Chat', url: '/', icon: MessageCircle },
@@ -37,47 +38,71 @@ export function AppSidebar() {
   const currentPath = location.pathname;
   const { toast } = useToast();
   
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [chatSessions, setChatSessions] = useState<BackendSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   
   const isCollapsed = state === 'collapsed';
   const isActive = (path: string) => currentPath === path;
 
   useEffect(() => {
-    // Load chat sessions
-    setChatSessions(chatStore.getAllSessions());
-    setCurrentSessionId(chatStore.getCurrentSessionId());
+    loadSessions();
   }, []);
 
-  const handleNewChat = () => {
-    const sessionId = chatStore.createNewSession();
-    setChatSessions(chatStore.getAllSessions());
-    setCurrentSessionId(sessionId);
-    navigate(`/chat/${sessionId}`);
-    toast({
-      title: "New chat created",
-      description: "Started a new conversation",
-    });
-  };
-
-  const handleDeleteSession = (sessionId: string, event: React.MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    
-    if (chatStore.deleteSession(sessionId)) {
-      setChatSessions(chatStore.getAllSessions());
-      if (currentSessionId === sessionId) {
-        setCurrentSessionId(null);
-        navigate('/');
-      }
+  const loadSessions = async () => {
+    try {
+      setIsLoading(true);
+      const sessions = await apiService.getSessions();
+      setChatSessions(sessions);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
       toast({
-        title: "Chat deleted",
-        description: "The chat session has been removed",
+        title: "Error",
+        description: "Failed to load chat sessions",
+        variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleSessionClick = (sessionId: string) => {
+  const handleNewChat = async () => {
+    try {
+      setIsLoading(true);
+      const session = await apiService.createSession('New Chat');
+      await loadSessions();
+      setCurrentSessionId(session.id);
+      navigate(`/chat/${session.id}`);
+      toast({
+        title: "New chat created",
+        description: "Started a new conversation",
+      });
+    } catch (error) {
+      console.error('Failed to create session:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create new chat session",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId: number, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Note: Backend doesn't have delete session endpoint yet
+    // For now, just show a message
+    toast({
+      title: "Delete not available",
+      description: "Session deletion is not yet implemented",
+      variant: "destructive",
+    });
+  };
+
+  const handleSessionClick = (sessionId: number) => {
     setCurrentSessionId(sessionId);
     navigate(`/chat/${sessionId}`);
   };
@@ -107,6 +132,7 @@ export function AppSidebar() {
         <div className="p-4">
           <Button
             onClick={handleNewChat}
+            disabled={isLoading}
             className={cn(
               'w-full justify-start gap-2 hover-scale',
               isCollapsed && 'px-2 justify-center'
@@ -114,7 +140,7 @@ export function AppSidebar() {
             variant="outline"
           >
             <Plus className="w-4 h-4" />
-            {!isCollapsed && <span>New Chat</span>}
+            {!isCollapsed && <span>{isLoading ? "Creating..." : "New Chat"}</span>}
           </Button>
         </div>
 
@@ -135,7 +161,7 @@ export function AppSidebar() {
                       onClick={() => handleSessionClick(session.id)}
                     >
                       <MessageCircle className="w-3 h-3 flex-shrink-0" />
-                      <span className="flex-1 truncate">{session.title}</span>
+                      <span className="flex-1 truncate">{session.name || `Session ${session.id}`}</span>
                       <Button
                         variant="ghost"
                         size="sm"

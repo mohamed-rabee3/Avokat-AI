@@ -3,7 +3,10 @@ PDF Processing Service using PyMuPDF
 Extracts text and metadata from PDF files
 """
 
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 from typing import List, Dict, Any
 from pathlib import Path
 import logging
@@ -22,6 +25,9 @@ class PDFProcessor:
     
     def extract_text_from_pdf(self, pdf_path: str) -> List[Document]:
         """Extract text from PDF file and return as LangChain documents"""
+        if fitz is None:
+            raise ImportError("PyMuPDF (fitz) is not available. Please install it with: pip install PyMuPDF")
+        
         try:
             # Open the PDF file
             doc = fitz.open(pdf_path)

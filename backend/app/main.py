@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi import UploadFile, File, Form, HTTPException, status, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pathlib import Path
@@ -14,8 +15,11 @@ from .core.config import settings
 from .db.sqlite import init_db, close_db
 from .db.sqlite import get_db, Session as DbSession, Upload as DbUpload
 from .db.neo4j import neo4j_manager, init_neomodel
-from .routers import sessions, neo4j
-from .services.bge_embedder import BGEM3Embedder, BGEM3EmbedderConfig
+from .routers import sessions, neo4j, chat
+# from .services.bge_embedder import BGEM3Embedder, BGEM3EmbedderConfig  # Not used in current implementation
+from .services.retrieval import retrieval_service
+from .services.llm import initialize_llm_service
+from .services.kg_builder import kg_builder
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,9 +40,30 @@ async def lifespan(app: FastAPI):
         await neo4j_manager.initialize()
         await init_neomodel()
         logger.info("Neo4j database initialized")
+        
+        # Initialize retrieval service
+        retrieval_service.initialize(
+            uri=settings.neo4j_uri,
+            username=settings.neo4j_user,
+            password=settings.neo4j_password,
+            database=settings.neo4j_database
+        )
+        logger.info("Retrieval service initialized")
+        
     except Exception as e:
         logger.error(f"Failed to initialize Neo4j: {e}")
         # Continue without Neo4j for now
+    
+    # Initialize LLM service
+    try:
+        if settings.gemini_api_key:
+            await initialize_llm_service(settings.gemini_api_key)
+            logger.info("LLM service initialized")
+        else:
+            logger.warning("Gemini API key not provided - LLM service not initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize LLM service: {e}")
+        # Continue without LLM service
     
     yield
     
@@ -46,6 +71,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down application...")
     await close_db()
     await neo4j_manager.close()
+    retrieval_service.close()
     logger.info("Application shutdown complete")
 
 
@@ -56,9 +82,36 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add CORS middleware - Comprehensive configuration for all development scenarios
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        # Localhost variations
+        "http://localhost:3000", "http://localhost:5173", "http://localhost:8000", "http://localhost:8080", 
+        "http://localhost:8081", "http://localhost:8082", "http://localhost:8083", "http://localhost:8084",
+        # 127.0.0.1 variations  
+        "http://127.0.0.1:3000", "http://127.0.0.1:5173", "http://127.0.0.1:8080",
+        "http://127.0.0.1:8081", "http://127.0.0.1:8082", "http://127.0.0.1:8083", "http://127.0.0.1:8084",
+        # Network IP variations (for different network interfaces)
+        "http://26.249.156.137:8080", "http://192.168.1.2:8080", "http://192.168.56.1:8080",
+        "http://192.168.154.1:8080", "http://192.168.75.1:8080", "http://172.25.32.1:8080",
+        # Additional common development ports
+        "http://localhost:3001", "http://localhost:4000", "http://localhost:5000",
+        "http://127.0.0.1:3001", "http://127.0.0.1:4000", "http://127.0.0.1:5000"
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
+    allow_headers=[
+        "Accept", "Accept-Language", "Content-Language", "Content-Type",
+        "Authorization", "X-Requested-With", "Origin", "Access-Control-Request-Method",
+        "Access-Control-Request-Headers", "Cache-Control", "Pragma"
+    ],
+)
+
 # Include routers
 app.include_router(sessions.router)
 app.include_router(neo4j.router)
+app.include_router(chat.router)
 
 
 @app.get("/")
@@ -192,6 +245,13 @@ async def ingest(
             
             total_nodes += len(graph_document.nodes)
             total_relationships += len(graph_document.relationships)
+            
+            # Store document chunk for retrieval
+            await kg_builder.store_document_chunk(
+                document=document,
+                session_id=session_id,
+                chunk_index=idx
+            )
             
             logger.info(f"Successfully processed chunk {idx + 1}/{max_chunks}: {len(graph_document.nodes)} nodes, {len(graph_document.relationships)} relationships")
             

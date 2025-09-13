@@ -69,7 +69,7 @@ class Neo4jKnowledgeGraphBuilder:
         try:
             # Initialize Gemini LLM
             genai.configure(api_key=settings.gemini_api_key)
-            self.llm = genai.GenerativeModel("gemini-2.0-flash-exp")
+            self.llm = genai.GenerativeModel("gemini-1.5-flash")
             
             # Initialize Neo4j graph connection
             self.graph = Neo4jGraph(
@@ -291,6 +291,49 @@ class Neo4jKnowledgeGraphBuilder:
         except Exception as e:
             logger.error(f"Failed to get session stats: {e}")
             return {}
+    
+    async def store_document_chunk(self, document: Document, session_id: int, chunk_index: int):
+        """Store document chunk for retrieval"""
+        try:
+            # Detect language
+            detected_language = language_detector.detect_language(document.page_content)
+            
+            # Create document chunk node
+            chunk_query = """
+            CREATE (c:DocumentChunk {
+                session_id: $session_id,
+                chunk_index: $chunk_index,
+                content: $content,
+                language: $language,
+                created_at: datetime(),
+                metadata: $metadata
+            })
+            """
+            
+            metadata = {}
+            if hasattr(document, 'metadata') and document.metadata:
+                metadata = document.metadata
+            
+            # Convert metadata to JSON string (Neo4j doesn't support complex objects)
+            import json
+            metadata_json = json.dumps(metadata) if metadata else "{}"
+            
+            # Execute the query
+            result = self.graph.query(chunk_query, {
+                "session_id": str(session_id),
+                "chunk_index": chunk_index,
+                "content": document.page_content,
+                "language": detected_language,
+                "metadata": metadata_json
+            })
+            
+            logger.info(f"Stored document chunk {chunk_index} for session {session_id} (content length: {len(document.page_content)})")
+            
+        except Exception as e:
+            logger.error(f"Failed to store document chunk: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     async def clear_session_data(self, session_id: int):
         """Clear all data for a specific session"""
