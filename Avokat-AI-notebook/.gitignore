@@ -1,0 +1,6 @@
+backend\app\.env
+backend\venv
+backend\__pycache__
+.cursor
+avokat.db
+.env
